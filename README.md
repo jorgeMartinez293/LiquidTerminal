@@ -1,10 +1,17 @@
 # LiquidTerminal
 
+---AI WAS USED IN THE MAKING OF THIS PROJECT---
+
 A modern, transparent terminal emulator for macOS built with Swift and [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm).
 
 ![macOS](https://img.shields.io/badge/macOS-13.0%2B-blue)
 ![Swift](https://img.shields.io/badge/Swift-6.2-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
+
+## Preview
+
+![LiquidTerminal Screenshot](image1.png)
+![LiquidTerminal Screenshot 2](image1.png)
 
 ## Features
 
