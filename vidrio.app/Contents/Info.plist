@@ -31,9 +31,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.2</string>
+	<string>1.3</string>
 	<key>CFBundleVersion</key>
-	<string>5</string>
+	<string>6</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
@@ -51,6 +51,6 @@
 	<key>SUFeedURL</key>
 	<string>https://jorgeMartinez293.github.io/vidrio-releases/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>Yp02/4XBYtWxLPlKoaUJamHb3FfE21Rh5a9w894TK0k=</string>
+	<string>D6HP6cHyAIGdVl0KspJbyy6+KtTqfG8F3Rs6/pkRTnY=</string>
 </dict>
 </plist>
