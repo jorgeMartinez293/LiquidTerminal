@@ -28,6 +28,7 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
     /// Solid color layer between the blur and the terminal text. Empty (clear)
     /// when `settings.backgroundColorEnabled` is false, preserving pure blur.
     private var backgroundOverlay: NSView!
+    private var visualEffectView: NSVisualEffectView!
     var isClosing = false
     private var processStarted = false
     private var shellExecutable: String = "/bin/zsh"
@@ -107,7 +108,7 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
         let radius: CGFloat = 28
 
         // Setup Visual Effect View for Blur (hidden when material is "none")
-        let visualEffectView = NSVisualEffectView(frame: view.bounds)
+        visualEffectView = NSVisualEffectView(frame: view.bounds)
         if let material = settings.blurMaterial.material {
             visualEffectView.material = material
             visualEffectView.isHidden = false
@@ -219,6 +220,50 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
 
         shellEnvironment = Array(env.map { "\($0.key)=\($0.value)" })
 
+    }
+
+    /// Live-applies appearance settings to an already-open window (blur, background
+    /// color/opacity, font, colors) — used when vaho pushes a theme change while this
+    /// window is already up. Geometry (cols/rows) is intentionally left out: like the
+    /// rest of vidrio's settings, that only takes effect for the next window opened.
+    func applySettings(_ newSettings: TerminalSettings) {
+        settings = newSettings
+
+        if let material = settings.blurMaterial.material {
+            visualEffectView.material = material
+            visualEffectView.isHidden = false
+        } else {
+            visualEffectView.isHidden = true
+        }
+
+        if settings.backgroundColorEnabled {
+            backgroundOverlay.layer?.backgroundColor =
+                settings.backgroundColor.withAlpha(settings.opacity).nsColor.cgColor
+        } else {
+            backgroundOverlay.layer?.backgroundColor = NSColor.clear.cgColor
+        }
+
+        terminalView.nativeForegroundColor = settings.textColor.nsColor
+        if let font = NSFont(name: settings.fontName, size: CGFloat(settings.fontSize)) {
+            terminalView.font = font
+        } else {
+            terminalView.font = NSFont.monospacedSystemFont(ofSize: CGFloat(settings.fontSize), weight: .regular)
+        }
+        terminalView.caretColor = settings.cursorColor.nsColor
+    }
+
+    /// Re-runs the sereno greeter (`sereno_greet`, installed by sereno's install.sh into
+    /// .zshrc) inside this window's live shell, so a sprite/color saved in the sereno app
+    /// shows up here too instead of only in windows opened after the save. Skipped for a
+    /// window running a one-off script (no interactive shell) or sitting in the alternate
+    /// screen buffer (vim, htop, claude, ...) where injected text would land in the TUI
+    /// instead of at a shell prompt.
+    func refreshSerenoGreeter() {
+        guard !isClosing, processStarted, scriptPath == nil,
+              terminalView.terminal.isCurrentBufferAlternate == false else { return }
+        // \u{15} (Ctrl-U) discards whatever's half-typed on the current line first, so this
+        // never gets appended to an in-progress command.
+        terminalView.send(txt: "\u{15}sereno_greet\r")
     }
 
     // MARK: - LocalProcessTerminalViewDelegate

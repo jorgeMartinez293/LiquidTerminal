@@ -16,6 +16,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // also create an empty default window.
     private var didReceiveOpenFiles = false
     private lazy var settingsWindowController = SettingsWindowController()
+    /// Watches ~/.config so already-open windows can react live when sereno saves a
+    /// sprite/color choice, or vaho pushes a theme — both of which today are plain file
+    /// writes to config.json/settings.json with no other signal.
+    private var configWatcher: ConfigWatcher?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("Application did finish launching")
@@ -24,10 +28,43 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !didReceiveOpenFiles {
             createNewWindow()
         }
+        startConfigWatcher()
 
         // async activation
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    /// Exact suffixes only — NOT a directory-prefix check. sereno's greet.sh writes
+    /// current_color under ~/.config/sereno/ every time it runs; if refreshSerenoGreeter()
+    /// re-ran on any change under that directory it would re-trigger itself forever
+    /// (save → inject sereno_greet → greet.sh writes current_color → watcher fires → inject
+    /// again → ...).
+    private static let serenoConfigSuffix = ".config/sereno/config.json"
+    private static let vidrioSettingsSuffix = ".config/vidrio/settings.json"
+
+    private func startConfigWatcher() {
+        let configDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config").path
+        configWatcher = ConfigWatcher(path: configDir) { [weak self] changedPaths in
+            self?.handleConfigChange(changedPaths)
+        }
+        configWatcher?.start()
+    }
+
+    private func handleConfigChange(_ paths: [String]) {
+        if paths.contains(where: { $0.hasSuffix(Self.serenoConfigSuffix) }) {
+            for window in windows {
+                (window.contentViewController as? TerminalViewController)?.refreshSerenoGreeter()
+            }
+        }
+        if paths.contains(where: { $0.hasSuffix(Self.vidrioSettingsSuffix) }) {
+            SettingsStore.shared.reload()
+            let settings = SettingsStore.shared.current
+            for window in windows {
+                (window.contentViewController as? TerminalViewController)?.applySettings(settings)
+            }
         }
     }
 

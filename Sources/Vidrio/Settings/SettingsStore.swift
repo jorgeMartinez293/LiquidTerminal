@@ -43,6 +43,17 @@ final class SettingsStore {
         }
     }
 
+    /// Re-reads `current` from disk if it actually changed — called when the config-file
+    /// watcher sees settings.json move (e.g. vaho applied a theme). No-ops on a decode
+    /// failure or on a write that round-trips to the same value, which also means this
+    /// app's own `save()` doesn't cause it to redundantly re-apply its own settings.
+    func reload() {
+        guard let data = try? Data(contentsOf: fileURL),
+              let decoded = try? JSONDecoder().decode(TerminalSettings.self, from: data),
+              decoded != current else { return }
+        current = decoded
+    }
+
     /// Clamps and persists `current`.
     func save() {
         current = current.clamped()
