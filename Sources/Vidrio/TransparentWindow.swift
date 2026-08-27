@@ -1,6 +1,22 @@
 import Cocoa
 
 class TransparentWindow: NSWindow {
+    /// Fired whenever first responder successfully changes (e.g. the user
+    /// clicked a different terminal pane). `GridViewController` uses this to
+    /// track which pane is focused — SwiftTerm's own `becomeFirstResponder`
+    /// override is `public`, not `open`, so it can't be overridden from
+    /// outside its module; watching it at the window level instead works
+    /// for any responder.
+    var onFirstResponderChange: ((NSResponder?) -> Void)?
+
+    override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        let result = super.makeFirstResponder(responder)
+        if result {
+            onFirstResponderChange?(responder)
+        }
+        return result
+    }
+
     /// Fixed inset of the traffic-light buttons from the top and leading edges,
     /// on top of their default macOS position. Pushes the buttons clear of the
     /// content's corner radius.

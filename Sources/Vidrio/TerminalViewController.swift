@@ -41,6 +41,56 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
     /// before the view loads; defaults reproduce the original hardcoded look.
     var settings: TerminalSettings = .defaults
 
+    /// Called when the shell process exits. When set (hosted as a pane in
+    /// `GridViewController`), the host decides what to do with the pane
+    /// instead of this controller closing the whole window. When nil, falls
+    /// back to the original standalone-window behavior.
+    var onProcessExit: (() -> Void)?
+    /// Whether shell OSC title updates (`setTerminalTitle`) are written to
+    /// the containing window's title. A grid with several panes only wants
+    /// its currently-focused pane driving the title.
+    var forwardsTitleToWindow: Bool = true
+
+    /// Content corner radius and edge insets. Defaults reproduce the app's
+    /// original single-window look (28pt radius, 50pt top inset to clear the
+    /// window's traffic lights). A host tiling several panes shrinks these
+    /// since only the grid as a whole — not each pane — needs to clear the
+    /// buttons. Live-updatable: changing these after the view has loaded
+    /// immediately re-applies them.
+    var cornerRadius: CGFloat = 28 { didSet { updateChrome() } }
+    var topInset: CGFloat = 50 { didSet { updateChrome() } }
+    var sideInset: CGFloat = 10 { didSet { updateChrome() } }
+    var bottomInset: CGFloat = 10 { didSet { updateChrome() } }
+
+    private var terminalTopConstraint: NSLayoutConstraint!
+    private var terminalLeadingConstraint: NSLayoutConstraint!
+    private var terminalTrailingConstraint: NSLayoutConstraint!
+    private var terminalBottomConstraint: NSLayoutConstraint!
+
+    private func updateChrome() {
+        guard isViewLoaded, terminalTopConstraint != nil else { return }
+        visualEffectView.layer?.cornerRadius = cornerRadius
+        backgroundOverlay.layer?.cornerRadius = cornerRadius
+        terminalView.layer?.cornerRadius = cornerRadius
+        terminalTopConstraint.constant = topInset
+        terminalLeadingConstraint.constant = sideInset
+        terminalTrailingConstraint.constant = -sideInset
+        terminalBottomConstraint.constant = -bottomInset
+    }
+
+    /// Makes this pane's terminal the window's first responder. Used by
+    /// `GridViewController` to move keyboard focus between panes.
+    func focusTerminal() {
+        view.window?.makeFirstResponder(terminalView)
+    }
+
+    /// Whether `responder` is this pane's terminal — used by
+    /// `GridViewController` to tell which pane the user clicked into via
+    /// `TransparentWindow.onFirstResponderChange`.
+    func owns(_ responder: NSResponder?) -> Bool {
+        responder === terminalView
+    }
+
     override func loadView() {
         self.view = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         self.view.wantsLayer = true
@@ -103,10 +153,6 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
 
 
     func setupTerminal() {
-        // Fixed content corner radius; the traffic-light buttons are inset 8 pt
-        // in TransparentWindow to clear it.
-        let radius: CGFloat = 28
-
         // Setup Visual Effect View for Blur (hidden when material is "none")
         visualEffectView = NSVisualEffectView(frame: view.bounds)
         if let material = settings.blurMaterial.material {
@@ -119,7 +165,7 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
         visualEffectView.state = .active
         visualEffectView.translatesAutoresizingMaskIntoConstraints = false
         visualEffectView.wantsLayer = true
-        visualEffectView.layer?.cornerRadius = radius
+        visualEffectView.layer?.cornerRadius = cornerRadius
         visualEffectView.layer?.masksToBounds = true
 
         view.addSubview(visualEffectView)
@@ -135,7 +181,7 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
         backgroundOverlay = NSView(frame: view.bounds)
         backgroundOverlay.translatesAutoresizingMaskIntoConstraints = false
         backgroundOverlay.wantsLayer = true
-        backgroundOverlay.layer?.cornerRadius = radius
+        backgroundOverlay.layer?.cornerRadius = cornerRadius
         backgroundOverlay.layer?.masksToBounds = true
         if settings.backgroundColorEnabled {
             backgroundOverlay.layer?.backgroundColor =
@@ -164,7 +210,7 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
         // Stylization
         terminalView.wantsLayer = true
         terminalView.layer?.backgroundColor = NSColor.clear.cgColor
-        terminalView.layer?.cornerRadius = radius
+        terminalView.layer?.cornerRadius = cornerRadius
         terminalView.layer?.masksToBounds = true
         terminalView.nativeBackgroundColor = .clear
         terminalView.nativeForegroundColor = settings.textColor.nsColor
@@ -181,11 +227,12 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
 
         view.addSubview(terminalView)
 
+        terminalTopConstraint = terminalView.topAnchor.constraint(equalTo: view.topAnchor, constant: topInset)
+        terminalLeadingConstraint = terminalView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: sideInset)
+        terminalTrailingConstraint = terminalView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -sideInset)
+        terminalBottomConstraint = terminalView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -bottomInset)
         NSLayoutConstraint.activate([
-            terminalView.topAnchor.constraint(equalTo: view.topAnchor, constant: 50), // Increased top margin
-            terminalView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
-            terminalView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            terminalView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -10)
+            terminalTopConstraint, terminalLeadingConstraint, terminalTrailingConstraint, terminalBottomConstraint
         ])
 
         // Build shell environment (process starts in viewDidLayout after layout is finalized)
@@ -274,7 +321,7 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
 
     nonisolated func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
         Task { @MainActor [weak self] in
-            guard let self, !self.isClosing,
+            guard let self, !self.isClosing, self.forwardsTitleToWindow,
                   let window = self.view.window else { return }
             window.title = title
         }
@@ -297,11 +344,16 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
     nonisolated func processTerminated(source: TerminalView, exitCode: Int32?) {
         print("Process terminated with exit code: \(String(describing: exitCode))")
         Task { @MainActor [weak self] in
-            guard let self, !self.isClosing,
-                  let window = self.view.window else { return }
-            // Use performClose to route through windowShouldClose
-            // which handles cleanup without crashing
-            window.performClose(nil)
+            guard let self, !self.isClosing else { return }
+            if let onProcessExit = self.onProcessExit {
+                // Hosted as a pane: let the host (e.g. GridViewController)
+                // decide what to do instead of closing the whole window.
+                onProcessExit()
+            } else if let window = self.view.window {
+                // Use performClose to route through windowShouldClose
+                // which handles cleanup without crashing
+                window.performClose(nil)
+            }
         }
     }
 }

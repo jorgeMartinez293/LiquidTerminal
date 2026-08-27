@@ -56,14 +56,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func handleConfigChange(_ paths: [String]) {
         if paths.contains(where: { $0.hasSuffix(Self.serenoConfigSuffix) }) {
             for window in windows {
-                (window.contentViewController as? TerminalViewController)?.refreshSerenoGreeter()
+                (window.contentViewController as? TerminalHosting)?.refreshSerenoGreeter()
             }
         }
         if paths.contains(where: { $0.hasSuffix(Self.vidrioSettingsSuffix) }) {
             SettingsStore.shared.reload()
             let settings = SettingsStore.shared.current
             for window in windows {
-                (window.contentViewController as? TerminalViewController)?.applySettings(settings)
+                (window.contentViewController as? TerminalHosting)?.applySettings(settings)
             }
         }
     }
@@ -105,12 +105,46 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         let newWindowItem = NSMenuItem(title: "New Window", action: #selector(newWindow(_:)), keyEquivalent: "n")
         fileMenu.addItem(newWindowItem)
-        
-        let closeWindowItem = NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+
+        // Routed through the responder chain: a grid window's GridViewController
+        // closes just the focused pane; anywhere else it falls back to
+        // closeFocusedTerminal(_:) below, which closes the key window.
+        let closeWindowItem = NSMenuItem(title: "Close Window", action: #selector(closeFocusedTerminal(_:)), keyEquivalent: "w")
         fileMenu.addItem(closeWindowItem)
-        
+
         fileMenuItem.submenu = fileMenu
-        
+
+        // Pane Menu — tiling controls for a grid window. Each item's action
+        // is only implemented by GridViewController, so AppKit's automatic
+        // responder-chain validation disables them in a plain (non-grid)
+        // window instead of doing nothing silently.
+        let paneMenuItem = NSMenuItem()
+        menu.addItem(paneMenuItem)
+        let paneMenu = NSMenu(title: "Pane")
+
+        let newPaneItem = NSMenuItem(title: "New Pane", action: #selector(GridViewController.addGridPane(_:)), keyEquivalent: "n")
+        newPaneItem.keyEquivalentModifierMask = [.command, .shift]
+        paneMenu.addItem(newPaneItem)
+        paneMenu.addItem(NSMenuItem.separator())
+
+        let focusUpItem = NSMenuItem(title: "Focus Pane Above", action: #selector(GridViewController.moveGridFocusUp(_:)), keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!))
+        focusUpItem.keyEquivalentModifierMask = [.command]
+        paneMenu.addItem(focusUpItem)
+
+        let focusDownItem = NSMenuItem(title: "Focus Pane Below", action: #selector(GridViewController.moveGridFocusDown(_:)), keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!))
+        focusDownItem.keyEquivalentModifierMask = [.command]
+        paneMenu.addItem(focusDownItem)
+
+        let focusLeftItem = NSMenuItem(title: "Focus Pane Left", action: #selector(GridViewController.moveGridFocusLeft(_:)), keyEquivalent: String(UnicodeScalar(NSLeftArrowFunctionKey)!))
+        focusLeftItem.keyEquivalentModifierMask = [.command]
+        paneMenu.addItem(focusLeftItem)
+
+        let focusRightItem = NSMenuItem(title: "Focus Pane Right", action: #selector(GridViewController.moveGridFocusRight(_:)), keyEquivalent: String(UnicodeScalar(NSRightArrowFunctionKey)!))
+        focusRightItem.keyEquivalentModifierMask = [.command]
+        paneMenu.addItem(focusRightItem)
+
+        paneMenuItem.submenu = paneMenu
+
         // Edit Menu
         let editMenuItem = NSMenuItem()
         menu.addItem(editMenuItem)
@@ -165,15 +199,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let newWindow = TransparentWindow(contentRect: rect)
         newWindow.delegate = self // Track closing
 
-        let viewController = TerminalViewController()
-        viewController.settings = settings
-        viewController.scriptPath = scriptPath
-        newWindow.contentViewController = viewController
+        if let scriptPath {
+            // A one-off script window isn't a session to tile — it runs
+            // /bin/bash <path> and is expected to close on its own, so it
+            // keeps the original plain single-terminal controller.
+            let viewController = TerminalViewController()
+            viewController.settings = settings
+            viewController.scriptPath = scriptPath
+            newWindow.contentViewController = viewController
+        } else {
+            // Every interactive window is a grid that starts with a single
+            // pane — visually identical to the old single-terminal window,
+            // but ⌘⇧N/⌘+arrow can grow it into a tiled multi-session grid.
+            let gridViewController = GridViewController()
+            gridViewController.settings = settings
+            newWindow.contentViewController = gridViewController
+        }
 
         // Add to our set to keep alive
         windows.insert(newWindow)
 
         newWindow.makeKeyAndOrderFront(nil)
+    }
+
+    /// Fallback for ⌘W outside a grid window (e.g. a script-launched
+    /// window). GridViewController implements the same selector to close
+    /// just the focused pane instead; AppKit's responder chain always tries
+    /// the key window's view controller before falling back to the app
+    /// delegate, so this only fires when that implementation isn't there.
+    @objc func closeFocusedTerminal(_ sender: Any?) {
+        NSApp.keyWindow?.performClose(nil)
     }
     
     // MARK: - Window Close Handling
@@ -190,9 +245,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     
     /// Hides and releases a window without going through NSWindow.close().
     func dismissWindow(_ window: NSWindow) {
-        // Clean up terminal process
-        if let termVC = window.contentViewController as? TerminalViewController {
-            termVC.cleanup()
+        // Clean up terminal process(es)
+        if let host = window.contentViewController as? TerminalHosting {
+            host.cleanup()
         }
         
         // Remove delegate to prevent further callbacks
