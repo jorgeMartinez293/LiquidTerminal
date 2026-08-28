@@ -16,15 +16,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // also create an empty default window.
     private var didReceiveOpenFiles = false
     private lazy var settingsWindowController = SettingsWindowController()
-    /// Watches ~/.config so already-open windows can react live when sereno saves a
-    /// sprite/color choice, or vaho pushes a theme — both of which today are plain file
-    /// writes to config.json/settings.json with no other signal.
+    private lazy var greeterWindowController = GreeterWindowController()
+    /// Watches ~/.config so already-open windows can react live when vaho pushes a theme —
+    /// a plain file write to settings.json with no other signal. A Greeter sprite/color
+    /// choice deliberately does NOT re-render already-open windows: the greeting only shows
+    /// once, when a shell starts, so saving a new sprite mid-session doesn't interrupt it.
     private var configWatcher: ConfigWatcher?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("Application did finish launching")
 
         setupMenu()
+        removeLegacySerenoShellIntegration()
         if !didReceiveOpenFiles {
             createNewWindow()
         }
@@ -36,12 +39,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    /// Exact suffixes only — NOT a directory-prefix check. sereno's greet.sh writes
-    /// current_color under ~/.config/sereno/ every time it runs; if refreshSerenoGreeter()
-    /// re-ran on any change under that directory it would re-trigger itself forever
-    /// (save → inject sereno_greet → greet.sh writes current_color → watcher fires → inject
-    /// again → ...).
-    private static let serenoConfigSuffix = ".config/sereno/config.json"
+    /// One-time cleanup for machines that ran the old standalone sereno installer: its
+    /// `.zshrc` block calls a `sereno_greet` shell function that no longer exists now that
+    /// the greeter renders natively (see TerminalViewController.refreshSerenoGreeter). Left
+    /// in place it would print a "command not found" on every new shell. Mirrors the
+    /// pokefetch-block removal sereno's own install.sh used to do. Idempotent: no-ops once
+    /// the block is gone.
+    /// Matched structurally (marker line through the trailing bare `sereno_greet` call)
+    /// rather than as one verbatim literal — real-world installs vary inside that span
+    /// (e.g. `%F{white}` vs `%F{15}` in the PROMPT line, depending on install.sh vintage),
+    /// so an exact-string match silently leaves the block — and the shell errors — in place.
+    private func removeLegacySerenoShellIntegration() {
+        let zshrc = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".zshrc")
+        guard var contents = try? String(contentsOf: zshrc, encoding: .utf8),
+              let markerRange = contents.range(of: "\n# sereno\n"),
+              let endRange = contents.range(of: "\nsereno_greet\n", range: markerRange.upperBound..<contents.endIndex)
+        else { return }
+        contents.removeSubrange(markerRange.lowerBound..<endRange.upperBound)
+        try? contents.write(to: zshrc, atomically: true, encoding: .utf8)
+    }
+
+    /// Exact suffix only — NOT a directory-prefix check.
     private static let vidrioSettingsSuffix = ".config/vidrio/settings.json"
 
     private func startConfigWatcher() {
@@ -54,11 +72,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func handleConfigChange(_ paths: [String]) {
-        if paths.contains(where: { $0.hasSuffix(Self.serenoConfigSuffix) }) {
-            for window in windows {
-                (window.contentViewController as? TerminalHosting)?.refreshSerenoGreeter()
-            }
-        }
         if paths.contains(where: { $0.hasSuffix(Self.vidrioSettingsSuffix) }) {
             SettingsStore.shared.reload()
             let settings = SettingsStore.shared.current
@@ -88,6 +101,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let appMenu = NSMenu()
         let settingsItem = NSMenuItem(title: "Ajustes…", action: #selector(openSettings(_:)), keyEquivalent: ",")
         appMenu.addItem(settingsItem)
+        let greeterItem = NSMenuItem(title: "Greeter…", action: #selector(openGreeter(_:)), keyEquivalent: "")
+        appMenu.addItem(greeterItem)
         let updateItem = NSMenuItem(title: "Buscar actualizaciones…",
                                     action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
                                     keyEquivalent: "")
@@ -97,7 +112,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenu.addItem(quitItem)
         appMenuItem.submenu = appMenu
-        
+
         // File Menu
         let fileMenuItem = NSMenuItem()
         menu.addItem(fileMenuItem)
@@ -170,6 +185,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func openSettings(_ sender: Any?) {
         settingsWindowController.showWindow(nil)
         settingsWindowController.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc func openGreeter(_ sender: Any?) {
+        greeterWindowController.showWindow(nil)
+        greeterWindowController.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
     

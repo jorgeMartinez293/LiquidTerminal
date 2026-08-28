@@ -124,6 +124,7 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
                 args: [],
                 environment: shellEnvironment
             )
+            refreshSerenoGreeter()
         }
     }
 
@@ -265,6 +266,21 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
         FileManager.default.changeCurrentDirectoryPath(homeDir)
 
+        // Matches sereno's old sereno_prompt(): a colored bullet + colored cwd, set once per
+        // shell (not re-evaluated per directory change, same as before). VIDRIO_PROMPT is
+        // applied by ZshPromptShim as the last step of shell startup, after the user's own
+        // .zshrc (and any theme/framework it loads) has already set PROMPT itself.
+        if let spriteURL = Self.resolveGreeterSprite() {
+            let color = ColorExtractor.dominantColor(for: spriteURL)
+            let hex = String(format: "#%02X%02X%02X", color.red, color.green, color.blue)
+            env["SERENO_COLOR"] = hex
+            env["VIDRIO_PROMPT"] = "%F{\(hex)}●%f %F{\(hex)}%/%f %F{15}"
+        }
+        if shellExecutable.hasSuffix("zsh"),
+           let zdotdir = ZshPromptShim.zdotdirIfSafe(currentEnvironment: env) {
+            env["ZDOTDIR"] = zdotdir.path
+        }
+
         shellEnvironment = Array(env.map { "\($0.key)=\($0.value)" })
 
     }
@@ -299,18 +315,36 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
         terminalView.caretColor = settings.cursorColor.nsColor
     }
 
-    /// Re-runs the sereno greeter (`sereno_greet`, installed by sereno's install.sh into
-    /// .zshrc) inside this window's live shell, so a sprite/color saved in the sereno app
-    /// shows up here too instead of only in windows opened after the save. Skipped for a
-    /// window running a one-off script (no interactive shell) or sitting in the alternate
-    /// screen buffer (vim, htop, claude, ...) where injected text would land in the TUI
-    /// instead of at a shell prompt.
+    /// Renders and feeds the sprite+sysinfo greeting straight into this window's buffer via
+    /// `feed(byteArray:)` — terminal *output*, parsed by the emulator, not shell input. No
+    /// shell function, no subprocess, no `.zshrc` cooperation needed (contrast the old sereno
+    /// integration, which sent `sereno_greet\r` as if typed). Called once, right after the
+    /// shell process starts — deliberately NOT re-called when the Greeter panel saves a new
+    /// sprite, so an already-open session isn't interrupted mid-use.
+    /// Skipped for a window running a one-off script (no interactive shell) or sitting in the
+    /// alternate screen buffer (vim, htop, claude, ...) where injected text would land in the
+    /// TUI instead of at a shell prompt.
     func refreshSerenoGreeter() {
         guard !isClosing, processStarted, scriptPath == nil,
               terminalView.terminal.isCurrentBufferAlternate == false else { return }
-        // \u{15} (Ctrl-U) discards whatever's half-typed on the current line first, so this
-        // never gets appended to an in-progress command.
-        terminalView.send(txt: "\u{15}sereno_greet\r")
+        guard let spriteURL = Self.resolveGreeterSprite() else { return }
+        let config = GreeterConfigStore.load()
+        let bytes = GreetingRenderer.render(spriteURL: spriteURL, displayMode: config.displayMode, shellExecutable: shellExecutable)
+        terminalView.feed(byteArray: bytes[...])
+    }
+
+    /// The sprite the greeter should show right now: the fixed selection from
+    /// `~/.config/sereno/config.json`, or a random one — same default as sereno's greet.sh.
+    private static func resolveGreeterSprite() -> URL? {
+        let config = GreeterConfigStore.load()
+        if let filename = config.selectedSprite {
+            let url = SpriteManager.spritesDir.appendingPathComponent(filename)
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
+        let fm = FileManager.default
+        let files = (try? fm.contentsOfDirectory(at: SpriteManager.spritesDir, includingPropertiesForKeys: nil)) ?? []
+        let valid = Set(["gif", "png", "jpg", "jpeg", "webp"])
+        return files.filter { valid.contains($0.pathExtension.lowercased()) }.randomElement()
     }
 
     // MARK: - LocalProcessTerminalViewDelegate

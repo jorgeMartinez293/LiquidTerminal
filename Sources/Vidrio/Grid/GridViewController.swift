@@ -6,7 +6,6 @@ import Cocoa
 @MainActor
 protocol TerminalHosting: AnyObject {
     func cleanup()
-    func refreshSerenoGreeter()
     func applySettings(_ newSettings: TerminalSettings)
 }
 
@@ -285,12 +284,6 @@ class GridViewController: NSViewController, TerminalHosting {
     func cleanup() {
         for pane in panes {
             pane.controller.cleanup()
-        }
-    }
-
-    func refreshSerenoGreeter() {
-        for pane in panes {
-            pane.controller.refreshSerenoGreeter()
         }
     }
 
