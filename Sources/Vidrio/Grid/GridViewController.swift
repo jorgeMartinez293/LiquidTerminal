@@ -106,7 +106,7 @@ class GridViewController: NSViewController, TerminalHosting {
         cell.addSubview(controller.view)
         addChild(controller)
         view.addSubview(cell)
-        relayout()
+        relayout(animated: true)
         return controller
     }
 
@@ -135,7 +135,7 @@ class GridViewController: NSViewController, TerminalHosting {
         panes.remove(at: idx)
         focusedIndex = min(focusedIndex, panes.count - 1)
         applyChrome()
-        relayout()
+        relayout(animated: true)
         focusFocusedPane()
 
         // Mirrors AppDelegate.dismissWindow: SwiftTerm's [unowned self]
@@ -193,10 +193,10 @@ class GridViewController: NSViewController, TerminalHosting {
 
     // MARK: - Layout
 
-    /// Grid resize tick (window resize, pane add/remove) skips the
-    /// animation — those already fire continuously or need to land
-    /// instantly. Only a focus change asks for `animated: true`, so a
-    /// pane's cell slides into its new slot instead of jumping there.
+    /// Window resize skips the animation, since it already fires
+    /// continuously — everything else (focus change, pane add/remove)
+    /// asks for `animated: true`, so a pane's cell slides into its new
+    /// slot instead of jumping there.
     private func relayout(animated: Bool = false) {
         guard !panes.isEmpty else { return }
         // No spacing to reserve with nothing to space between — a single
