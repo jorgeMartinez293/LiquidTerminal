@@ -115,7 +115,7 @@ class GridViewController: NSViewController, TerminalHosting {
               idx != focusedIndex else { return }
         focusedIndex = idx
         applyChrome()
-        relayout()
+        relayout(animated: true)
     }
 
     private func closePane(_ controller: TerminalViewController) {
@@ -182,7 +182,7 @@ class GridViewController: NSViewController, TerminalHosting {
         guard newIndex != focusedIndex else { return }
         focusedIndex = newIndex
         applyChrome()
-        relayout()
+        relayout(animated: true)
         focusFocusedPane()
     }
 
@@ -193,7 +193,11 @@ class GridViewController: NSViewController, TerminalHosting {
 
     // MARK: - Layout
 
-    private func relayout() {
+    /// Grid resize tick (window resize, pane add/remove) skips the
+    /// animation — those already fire continuously or need to land
+    /// instantly. Only a focus change asks for `animated: true`, so a
+    /// pane's cell slides into its new slot instead of jumping there.
+    private func relayout(animated: Bool = false) {
         guard !panes.isEmpty else { return }
         // No spacing to reserve with nothing to space between — a single
         // pane fills the window edge-to-edge exactly like the original
@@ -203,16 +207,40 @@ class GridViewController: NSViewController, TerminalHosting {
             count: panes.count, focusedIndex: focusedIndex, bounds: view.bounds,
             spacing: panes.count > 1 ? spacing : 0, focusWeight: focusWeight
         )
-        for (idx, pane) in panes.enumerated() {
-            pane.cell.frame = layout.frames[idx]
-            pane.cellBackdrop.frame = NSRect(origin: .zero, size: layout.frames[idx].size)
-            // Only the focused pane's terminal actually resizes (and so
-            // reflows) — a collapsed pane keeps whatever geometry it had
-            // the last time it was focused; `cellBackdrop`, not a resize,
-            // is what covers its cell if that leaves it short.
-            if idx == focusedIndex {
-                pane.controller.view.frame = NSRect(origin: .zero, size: layout.frames[idx].size)
+        let applyFrames = {
+            for (idx, pane) in self.panes.enumerated() {
+                let target = layout.frames[idx]
+                if animated {
+                    pane.cell.animator().frame = target
+                    pane.cellBackdrop.animator().frame = NSRect(origin: .zero, size: target.size)
+                } else {
+                    pane.cell.frame = target
+                    pane.cellBackdrop.frame = NSRect(origin: .zero, size: target.size)
+                }
+                // Only the focused pane's terminal actually resizes (and so
+                // reflows) — a collapsed pane keeps whatever geometry it had
+                // the last time it was focused; `cellBackdrop`, not a resize,
+                // is what covers its cell if that leaves it short.
+                if idx == self.focusedIndex {
+                    let focusedTarget = NSRect(origin: .zero, size: target.size)
+                    if animated {
+                        pane.controller.view.animator().frame = focusedTarget
+                    } else {
+                        pane.controller.view.frame = focusedTarget
+                    }
+                }
             }
+        }
+        guard animated else {
+            applyFrames()
+            return
+        }
+        // Sped up well past macOS's default 0.25s so darting between panes
+        // reads as a quick slide rather than a laggy animation.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.09
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            applyFrames()
         }
     }
 
