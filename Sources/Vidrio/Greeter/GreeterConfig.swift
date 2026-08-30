@@ -26,16 +26,19 @@ enum DisplayMode: String, Codable, CaseIterable {
 struct GreeterConfig: Codable {
     var selectedSprite: String?
     var displayMode: DisplayMode
+    var enabledFields: [InfoField]
 
     enum CodingKeys: String, CodingKey {
         case selectedSprite = "selected_sprite"
         case legacySelectedSprite = "selected_pokemon"
         case displayMode = "display_mode"
+        case enabledFields = "enabled_fields"
     }
 
-    init(selectedSprite: String? = nil, displayMode: DisplayMode = .auto) {
+    init(selectedSprite: String? = nil, displayMode: DisplayMode = .auto, enabledFields: [InfoField] = InfoField.defaults) {
         self.selectedSprite = selectedSprite
         self.displayMode = displayMode
+        self.enabledFields = enabledFields
     }
 
     init(from decoder: Decoder) throws {
@@ -43,12 +46,20 @@ struct GreeterConfig: Codable {
         self.selectedSprite = try c.decodeIfPresent(String.self, forKey: .selectedSprite)
             ?? c.decodeIfPresent(String.self, forKey: .legacySelectedSprite)
         self.displayMode = try c.decodeIfPresent(DisplayMode.self, forKey: .displayMode) ?? .auto
+        // Decode as raw strings rather than [InfoField] directly: an unrecognized
+        // field name (e.g. saved by a newer vidrio) must not fail the whole decode.
+        if let rawFields = try c.decodeIfPresent([String].self, forKey: .enabledFields) {
+            self.enabledFields = rawFields.compactMap(InfoField.init(rawValue:))
+        } else {
+            self.enabledFields = InfoField.defaults
+        }
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(selectedSprite, forKey: .selectedSprite)
         try c.encode(displayMode, forKey: .displayMode)
+        try c.encode(enabledFields, forKey: .enabledFields)
     }
 }
 

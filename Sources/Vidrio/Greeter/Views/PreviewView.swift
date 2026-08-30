@@ -6,6 +6,7 @@ struct PreviewView: View {
     let sprite: Sprite?
     let displayMode: DisplayMode
     let isOnBattery: Bool
+    let fields: [InfoField]
 
     private var showGIF: Bool {
         switch displayMode {
@@ -17,8 +18,13 @@ struct PreviewView: View {
 
     // SF Mono 11pt line height (px) used to estimate terminal rows from view height
     private static let lineHeight: CGFloat = 15.0
-    // Expected greeting height in rows (logo + info side-by-side, box height 15 + margins)
-    private static let outputRows = 17
+
+    /// Expected greeting height in rows (logo + info side-by-side, plus the
+    /// trailing prompt line), mirroring GreetingRenderer's own row math —
+    /// grows past the box's default 15 rows once more than 13 fields are enabled.
+    private var outputRows: Int {
+        max(15, fields.count + 2) + 2
+    }
 
     var body: some View {
         ZStack {
@@ -27,10 +33,11 @@ struct PreviewView: View {
             if sprite != nil {
                 GeometryReader { geo in
                     let terminalRows = Int(geo.size.height / Self.lineHeight)
-                    let topPadding = max(0, (terminalRows - Self.outputRows) / 2)
+                    let topPadding = max(0, (terminalRows - outputRows) / 2)
                     TerminalPreviewView(
                         sprite: sprite,
                         displayMode: displayMode,
+                        fields: fields,
                         topPadding: topPadding,
                         size: geo.size
                     )
@@ -71,6 +78,7 @@ struct PreviewView: View {
 struct TerminalPreviewView: NSViewRepresentable {
     let sprite: Sprite?
     let displayMode: DisplayMode
+    let fields: [InfoField]
     let topPadding: Int
     /// The view's laid-out size from the caller's GeometryReader. SwiftTerm computes its
     /// column/row count from the view's frame at the moment content is fed, so this must be
@@ -113,7 +121,7 @@ struct TerminalPreviewView: NSViewRepresentable {
         guard let sprite else { return }
         tv.terminal.resetToInitialState()
         var bytes: [UInt8] = topPadding > 0 ? Array(String(repeating: "\n", count: topPadding).utf8) : []
-        bytes += GreetingRenderer.render(spriteURL: sprite.url, displayMode: displayMode, shellExecutable: "/bin/zsh")
+        bytes += GreetingRenderer.render(spriteURL: sprite.url, displayMode: displayMode, shellExecutable: "/bin/zsh", fields: fields)
         bytes += Self.promptPreview(spriteURL: sprite.url)
         tv.feed(byteArray: bytes[...])
     }

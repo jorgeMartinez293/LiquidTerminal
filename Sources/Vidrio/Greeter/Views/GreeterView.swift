@@ -17,17 +17,21 @@ struct GreeterView: View {
     @State private var isOnBattery = SystemInfo.isOnBattery()
     @State private var accentColor = Color(red: 0.85, green: 0.55, blue: 0.55)
     @State private var showPackStore = false
+    @State private var showFieldsPicker = false
 
     /// What's currently on disk (config.json), so we can tell whether the live selection
     /// still matches it — drives the "Cambios sin guardar" indicator and the Guardar button.
     @State private var savedSelectedFilename: String?
     @State private var savedDisplayMode: DisplayMode = .auto
+    @State private var savedFields: [InfoField] = InfoField.defaults
 
     enum SaveStatus { case idle, error }
 
     private var isDirty: Bool {
         let currentSprite = isRandomMode ? nil : selectedSprite?.filename
-        return currentSprite != savedSelectedFilename || config.displayMode != savedDisplayMode
+        return currentSprite != savedSelectedFilename
+            || config.displayMode != savedDisplayMode
+            || config.enabledFields != savedFields
     }
 
     var body: some View {
@@ -61,6 +65,9 @@ struct GreeterView: View {
         .sheet(isPresented: $showPackStore) {
             PackStoreView(spriteManager: spriteManager, accentColor: accentColor)
         }
+        .sheet(isPresented: $showFieldsPicker) {
+            InfoFieldsPickerView(enabledFields: $config.enabledFields, accentColor: accentColor)
+        }
         .onAppear(perform: restoreSelection)
         .onChange(of: selectedSprite) { poke in
             if let poke { computeColor(for: poke) }
@@ -77,7 +84,8 @@ struct GreeterView: View {
             PreviewView(
                 sprite: isRandomMode ? spriteManager.sprites.randomElement() : selectedSprite,
                 displayMode: config.displayMode,
-                isOnBattery: isOnBattery
+                isOnBattery: isOnBattery,
+                fields: config.enabledFields
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -100,6 +108,13 @@ struct GreeterView: View {
                 .labelsHidden()
                 .frame(width: 310)
             }
+
+            Button {
+                showFieldsPicker = true
+            } label: {
+                Label("Información", systemImage: "list.bullet.rectangle")
+            }
+            .help("Elige qué datos del sistema se muestran junto al sprite")
 
             Spacer()
 
@@ -159,6 +174,7 @@ struct GreeterView: View {
     private func restoreSelection() {
         savedSelectedFilename = config.selectedSprite
         savedDisplayMode = config.displayMode
+        savedFields = config.enabledFields
         if config.selectedSprite == nil {
             isRandomMode = true
             accentColor = Color(red: 0.85, green: 0.55, blue: 0.55)
@@ -187,6 +203,7 @@ struct GreeterView: View {
             try GreeterConfigStore.save(config)
             savedSelectedFilename = config.selectedSprite
             savedDisplayMode = config.displayMode
+            savedFields = config.enabledFields
         } catch {
             withAnimation { saveStatus = .error }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {

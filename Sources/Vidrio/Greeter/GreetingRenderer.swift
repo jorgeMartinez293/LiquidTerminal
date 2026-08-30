@@ -12,7 +12,7 @@ enum GreetingRenderer {
     private static let gapCells = 2
     private static let topBlankLines = 1
 
-    static func render(spriteURL: URL, displayMode: DisplayMode, shellExecutable: String) -> [UInt8] {
+    static func render(spriteURL: URL, displayMode: DisplayMode, shellExecutable: String, fields: [InfoField] = InfoField.defaults) -> [UInt8] {
         let onBattery = SystemInfo.isOnBattery()
         let wantsAnimation: Bool
         switch displayMode {
@@ -22,13 +22,13 @@ enum GreetingRenderer {
         }
 
         guard let sprite = ImagePipeline.render(fileAt: spriteURL, staticFrameOnly: !wantsAnimation) else {
-            return Array(SystemInfo.lines(shellExecutable: shellExecutable)
+            return Array(SystemInfo.lines(shellExecutable: shellExecutable, fields: fields)
                 .map { "\($0.key): \($0.value)" }
                 .joined(separator: "\n").utf8)
         }
 
         let color = ColorExtractor.dominantColor(for: spriteURL)
-        let infoLines = SystemInfo.lines(shellExecutable: shellExecutable)
+        let infoLines = SystemInfo.lines(shellExecutable: shellExecutable, fields: fields)
 
         let logoWidth = min(boxWidthCells, max(1, Int((sprite.nativeSize.width * CGFloat(boxWidthCells) / 80).rounded())))
         let logoHeight = min(boxHeightCells, max(1, Int((sprite.nativeSize.height * CGFloat(boxHeightCells) / 80).rounded())))

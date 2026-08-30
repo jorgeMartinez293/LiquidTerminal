@@ -329,7 +329,7 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
               terminalView.terminal.isCurrentBufferAlternate == false else { return }
         guard let spriteURL = Self.resolveGreeterSprite() else { return }
         let config = GreeterConfigStore.load()
-        let bytes = GreetingRenderer.render(spriteURL: spriteURL, displayMode: config.displayMode, shellExecutable: shellExecutable)
+        let bytes = GreetingRenderer.render(spriteURL: spriteURL, displayMode: config.displayMode, shellExecutable: shellExecutable, fields: config.enabledFields)
         terminalView.feed(byteArray: bytes[...])
     }
 

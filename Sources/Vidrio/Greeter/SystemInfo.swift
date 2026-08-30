@@ -1,30 +1,136 @@
 import AppKit
 import Foundation
 import IOKit.ps
+import Metal
+
+/// One piece of system information the greeting can show. `GreeterConfig`
+/// stores the user's chosen subset and order as `[InfoField]`.
+enum InfoField: String, Codable, CaseIterable, Identifiable {
+    case os, kernel, shell, terminal, theme, display, uptime, cpu, memory, disk,
+         host, architecture, gpu, battery, loadAverage, packages, locale, hostname, username
+
+    var id: String { rawValue }
+
+    /// Short key printed next to the bullet in the rendered greeting —
+    /// unchanged for the original ten fields so existing greetings don't shift.
+    var key: String {
+        switch self {
+        case .os: return "os"
+        case .kernel: return "ker"
+        case .shell: return "sh"
+        case .terminal: return "term"
+        case .theme: return "theme"
+        case .display: return "disp"
+        case .uptime: return "up"
+        case .cpu: return "cpu"
+        case .memory: return "ram"
+        case .disk: return "disk"
+        case .host: return "host"
+        case .architecture: return "arch"
+        case .gpu: return "gpu"
+        case .battery: return "bat"
+        case .loadAverage: return "load"
+        case .packages: return "pkgs"
+        case .locale: return "locale"
+        case .hostname: return "hostname"
+        case .username: return "user"
+        }
+    }
+
+    /// Label shown for this field in the Greeter panel's info picker.
+    var title: String {
+        switch self {
+        case .os: return "Sistema operativo"
+        case .kernel: return "Kernel"
+        case .shell: return "Shell"
+        case .terminal: return "Terminal"
+        case .theme: return "Tema de interfaz"
+        case .display: return "Resolución de pantalla"
+        case .uptime: return "Tiempo encendido"
+        case .cpu: return "Procesador"
+        case .memory: return "Memoria RAM"
+        case .disk: return "Disco"
+        case .host: return "Modelo de Mac"
+        case .architecture: return "Arquitectura"
+        case .gpu: return "GPU"
+        case .battery: return "Batería"
+        case .loadAverage: return "Carga del sistema"
+        case .packages: return "Paquetes (Homebrew)"
+        case .locale: return "Idioma y región"
+        case .hostname: return "Nombre del equipo"
+        case .username: return "Usuario"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .os: return "apple.logo"
+        case .kernel: return "cpu"
+        case .shell: return "terminal"
+        case .terminal: return "terminal.fill"
+        case .theme: return "circle.lefthalf.filled"
+        case .display: return "display"
+        case .uptime: return "clock"
+        case .cpu: return "cpu.fill"
+        case .memory: return "memorychip"
+        case .disk: return "internaldrive"
+        case .host: return "laptopcomputer"
+        case .architecture: return "square.stack.3d.up"
+        case .gpu: return "square.stack.3d.up.fill"
+        case .battery: return "battery.100"
+        case .loadAverage: return "gauge.medium"
+        case .packages: return "shippingbox"
+        case .locale: return "globe"
+        case .hostname: return "network"
+        case .username: return "person.crop.circle"
+        }
+    }
+
+    /// The greeting's original ten fields, in their original order — used
+    /// both as the factory default and to fill in for configs saved before
+    /// this field existed.
+    static let defaults: [InfoField] = [
+        .os, .kernel, .shell, .terminal, .theme, .display, .uptime, .cpu, .memory, .disk,
+    ]
+}
 
 /// Native replacement for the fastfetch modules sereno used
 /// (os/kernel/shell/terminal/theme/display/uptime/cpu/memory/disk in
-/// sereno/fastfetch.jsonc). vidrio already knows its own shell and identity,
-/// so those two are cheaper here than they were for fastfetch.
+/// sereno/fastfetch.jsonc), plus a few extra fields the user can opt into.
+/// vidrio already knows its own shell and identity, so those two are cheaper
+/// here than they were for fastfetch.
 enum SystemInfo {
     struct Line {
         let key: String
         let value: String
     }
 
-    static func lines(shellExecutable: String) -> [Line] {
-        [
-            Line(key: "os", value: osName()),
-            Line(key: "ker", value: kernelRelease()),
-            Line(key: "sh", value: (shellExecutable as NSString).lastPathComponent),
-            Line(key: "term", value: "vidrio"),
-            Line(key: "theme", value: interfaceTheme()),
-            Line(key: "disp", value: displayInfo()),
-            Line(key: "up", value: uptime()),
-            Line(key: "cpu", value: cpuBrand()),
-            Line(key: "ram", value: memoryUsage()),
-            Line(key: "disk", value: diskUsage()),
-        ]
+    static func lines(shellExecutable: String, fields: [InfoField] = InfoField.defaults) -> [Line] {
+        fields.map { Line(key: $0.key, value: value(for: $0, shellExecutable: shellExecutable)) }
+    }
+
+    private static func value(for field: InfoField, shellExecutable: String) -> String {
+        switch field {
+        case .os: return osName()
+        case .kernel: return kernelRelease()
+        case .shell: return (shellExecutable as NSString).lastPathComponent
+        case .terminal: return "vidrio"
+        case .theme: return interfaceTheme()
+        case .display: return displayInfo()
+        case .uptime: return uptime()
+        case .cpu: return cpuBrand()
+        case .memory: return memoryUsage()
+        case .disk: return diskUsage()
+        case .host: return hostModel()
+        case .architecture: return architecture()
+        case .gpu: return gpuName()
+        case .battery: return batteryStatus()
+        case .loadAverage: return loadAverage()
+        case .packages: return packageCount()
+        case .locale: return Locale.current.identifier
+        case .hostname: return hostname()
+        case .username: return ProcessInfo.processInfo.userName
+        }
     }
 
     private static func osName() -> String {
@@ -101,6 +207,68 @@ enum SystemInfo {
               let free = attrs[.systemFreeSize] as? UInt64
         else { return "unknown" }
         return "\(formatBytes(total - free)) / \(formatBytes(total))"
+    }
+
+    /// Model identifier (e.g. "Mac15,7") — the marketing name isn't exposed
+    /// by any local API, so this stays a raw identifier like fastfetch's own.
+    private static func hostModel() -> String {
+        sysctlString("hw.model") ?? "unknown"
+    }
+
+    private static func architecture() -> String {
+        #if arch(arm64)
+        return "arm64 (Apple Silicon)"
+        #elseif arch(x86_64)
+        return "x86_64 (Intel)"
+        #else
+        return sysctlString("hw.machine") ?? "unknown"
+        #endif
+    }
+
+    private static func gpuName() -> String {
+        MTLCreateSystemDefaultDevice()?.name ?? "unknown"
+    }
+
+    /// Charge percentage and power source, or "sin batería" on a desktop Mac.
+    private static func batteryStatus() -> String {
+        guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef],
+              let source = sources.first,
+              let description = IOPSGetPowerSourceDescription(snapshot, source)?.takeUnretainedValue() as? [String: Any],
+              let capacity = description[kIOPSCurrentCapacityKey] as? Int
+        else { return "unknown" }
+        let state = description[kIOPSPowerSourceStateKey] as? String
+        let charging = description[kIOPSIsChargingKey] as? Bool ?? false
+        let suffix = state == kIOPSACPowerValue ? (charging ? " (cargando)" : " (con cargador)") : ""
+        return "\(capacity)%\(suffix)"
+    }
+
+    private static func loadAverage() -> String {
+        var averages = [Double](repeating: 0, count: 3)
+        guard getloadavg(&averages, 3) == 3 else { return "unknown" }
+        return averages.map { String(format: "%.2f", $0) }.joined(separator: " ")
+    }
+
+    /// Formula + cask count from a local Homebrew install, counted straight
+    /// from the Cellar/Caskroom directories — no `brew` subprocess involved.
+    private static func packageCount() -> String {
+        let prefixes = ["/opt/homebrew", "/usr/local"]
+        var formulas = 0, casks = 0
+        for prefix in prefixes {
+            formulas += subdirectoryCount(at: "\(prefix)/Cellar")
+            casks += subdirectoryCount(at: "\(prefix)/Caskroom")
+        }
+        guard formulas + casks > 0 else { return "unknown" }
+        return "\(formulas) formulas, \(casks) casks"
+    }
+
+    private static func subdirectoryCount(at path: String) -> Int {
+        (try? FileManager.default.contentsOfDirectory(atPath: path))?.count ?? 0
+    }
+
+    private static func hostname() -> String {
+        let name = ProcessInfo.processInfo.hostName
+        return name.hasSuffix(".local") ? String(name.dropLast(6)) : name
     }
 
     private static func formatBytes(_ bytes: UInt64) -> String {
