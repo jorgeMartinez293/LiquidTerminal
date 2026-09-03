@@ -7,6 +7,7 @@ struct PreviewView: View {
     let displayMode: DisplayMode
     let isOnBattery: Bool
     let fields: [InfoField]
+    let bulletColorHex: String?
 
     private var showGIF: Bool {
         switch displayMode {
@@ -38,6 +39,7 @@ struct PreviewView: View {
                         sprite: sprite,
                         displayMode: displayMode,
                         fields: fields,
+                        bulletColorHex: bulletColorHex,
                         topPadding: topPadding,
                         size: geo.size
                     )
@@ -79,6 +81,7 @@ struct TerminalPreviewView: NSViewRepresentable {
     let sprite: Sprite?
     let displayMode: DisplayMode
     let fields: [InfoField]
+    let bulletColorHex: String?
     let topPadding: Int
     /// The view's laid-out size from the caller's GeometryReader. SwiftTerm computes its
     /// column/row count from the view's frame at the moment content is fed, so this must be
@@ -121,8 +124,8 @@ struct TerminalPreviewView: NSViewRepresentable {
         guard let sprite else { return }
         tv.terminal.resetToInitialState()
         var bytes: [UInt8] = topPadding > 0 ? Array(String(repeating: "\n", count: topPadding).utf8) : []
-        bytes += GreetingRenderer.render(spriteURL: sprite.url, displayMode: displayMode, shellExecutable: "/bin/zsh", fields: fields)
-        bytes += Self.promptPreview(spriteURL: sprite.url)
+        bytes += GreetingRenderer.render(spriteURL: sprite.url, displayMode: displayMode, shellExecutable: "/bin/zsh", fields: fields, bulletColorHex: bulletColorHex)
+        bytes += Self.promptPreview(spriteURL: sprite.url, bulletColorHex: bulletColorHex)
         tv.feed(byteArray: bytes[...])
     }
 
@@ -130,8 +133,8 @@ struct TerminalPreviewView: NSViewRepresentable {
     /// `ZshPromptShim`, which the preview has no shell to run) — same colored bullet +
     /// home-directory path as sereno's old `sereno_prompt()`, so the picker shows what a
     /// real new terminal's prompt line will look like.
-    private static func promptPreview(spriteURL: URL) -> [UInt8] {
-        let color = ColorExtractor.dominantColor(for: spriteURL)
+    private static func promptPreview(spriteURL: URL, bulletColorHex: String?) -> [UInt8] {
+        let color = ColorExtractor.resolvedColor(for: spriteURL, overrideHex: bulletColorHex)
         let path = FileManager.default.homeDirectoryForCurrentUser.path
         let fg = String(decoding: color.ansiForeground, as: UTF8.self)
         return Array("\(fg)\u{25CF}\u{1B}[0m \(fg)\(path)\u{1B}[0m ".utf8)

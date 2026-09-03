@@ -12,7 +12,7 @@ enum GreetingRenderer {
     private static let gapCells = 2
     private static let topBlankLines = 1
 
-    static func render(spriteURL: URL, displayMode: DisplayMode, shellExecutable: String, fields: [InfoField] = InfoField.defaults) -> [UInt8] {
+    static func render(spriteURL: URL, displayMode: DisplayMode, shellExecutable: String, fields: [InfoField] = InfoField.defaults, bulletColorHex: String? = nil) -> [UInt8] {
         let onBattery = SystemInfo.isOnBattery()
         let wantsAnimation: Bool
         switch displayMode {
@@ -27,7 +27,7 @@ enum GreetingRenderer {
                 .joined(separator: "\n").utf8)
         }
 
-        let color = ColorExtractor.dominantColor(for: spriteURL)
+        let color = ColorExtractor.resolvedColor(for: spriteURL, overrideHex: bulletColorHex)
         let infoLines = SystemInfo.lines(shellExecutable: shellExecutable, fields: fields)
 
         let logoWidth = min(boxWidthCells, max(1, Int((sprite.nativeSize.width * CGFloat(boxWidthCells) / 80).rounded())))

@@ -24,6 +24,7 @@ struct GreeterView: View {
     @State private var savedSelectedFilename: String?
     @State private var savedDisplayMode: DisplayMode = .auto
     @State private var savedFields: [InfoField] = InfoField.defaults
+    @State private var savedBulletColorHex: String?
 
     enum SaveStatus { case idle, error }
 
@@ -32,6 +33,27 @@ struct GreeterView: View {
         return currentSprite != savedSelectedFilename
             || config.displayMode != savedDisplayMode
             || config.enabledFields != savedFields
+            || config.bulletColorHex != savedBulletColorHex
+    }
+
+    /// The color picker's binding: the active bullet/prompt color right now,
+    /// whether that's the user's override or the sprite's dominant color.
+    private var bulletColorBinding: Binding<Color> {
+        Binding(
+            get: { accentColor },
+            set: { newColor in
+                config.bulletColorHex = Self.hex(from: newColor)
+                withAnimation(.easeInOut(duration: 0.2)) { accentColor = newColor }
+            }
+        )
+    }
+
+    private static func hex(from color: Color) -> String {
+        let ns = (NSColor(color).usingColorSpace(.deviceRGB)) ?? NSColor(color)
+        let r = UInt8((max(0, min(1, ns.redComponent)) * 255).rounded())
+        let g = UInt8((max(0, min(1, ns.greenComponent)) * 255).rounded())
+        let b = UInt8((max(0, min(1, ns.blueComponent)) * 255).rounded())
+        return String(format: "#%02X%02X%02X", r, g, b)
     }
 
     var body: some View {
@@ -69,12 +91,8 @@ struct GreeterView: View {
             InfoFieldsPickerView(enabledFields: $config.enabledFields, accentColor: accentColor)
         }
         .onAppear(perform: restoreSelection)
-        .onChange(of: selectedSprite) { poke in
-            if let poke { computeColor(for: poke) }
-        }
-        .onChange(of: isRandomMode) { random in
-            if random { accentColor = Color(red: 0.85, green: 0.55, blue: 0.55) }
-        }
+        .onChange(of: selectedSprite) { _ in applyColor() }
+        .onChange(of: isRandomMode) { _ in applyColor() }
     }
 
     // MARK: - Detail
@@ -85,7 +103,8 @@ struct GreeterView: View {
                 sprite: isRandomMode ? spriteManager.sprites.randomElement() : selectedSprite,
                 displayMode: config.displayMode,
                 isOnBattery: isOnBattery,
-                fields: config.enabledFields
+                fields: config.enabledFields,
+                bulletColorHex: config.bulletColorHex
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -115,6 +134,27 @@ struct GreeterView: View {
                 Label("Información", systemImage: "list.bullet.rectangle")
             }
             .help("Elige qué datos del sistema se muestran junto al sprite")
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Color del punto")
+                    .font(.caption).foregroundColor(.secondary)
+                HStack(spacing: 6) {
+                    ColorPicker("", selection: bulletColorBinding, supportsOpacity: false)
+                        .labelsHidden()
+                        .frame(width: 28)
+                    if config.bulletColorHex != nil {
+                        Button {
+                            config.bulletColorHex = nil
+                            applyColor()
+                        } label: {
+                            Image(systemName: "arrow.counterclockwise")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.secondary)
+                        .help("Usar el color del sprite")
+                    }
+                }
+            }
 
             Spacer()
 
@@ -175,17 +215,28 @@ struct GreeterView: View {
         savedSelectedFilename = config.selectedSprite
         savedDisplayMode = config.displayMode
         savedFields = config.enabledFields
+        savedBulletColorHex = config.bulletColorHex
         if config.selectedSprite == nil {
             isRandomMode = true
-            accentColor = Color(red: 0.85, green: 0.55, blue: 0.55)
         } else if let saved = config.selectedSprite,
                   let poke = spriteManager.sprites.first(where: { $0.filename == saved }) {
             selectedSprite = poke
-            computeColor(for: poke)
         }
+        applyColor()
     }
 
-    private func computeColor(for poke: Sprite) {
+    /// Resolves the color driving the UI accent, the info-line bullets, and the prompt:
+    /// the user's override if set, otherwise the current sprite's dominant color — same
+    /// default as before this override existed.
+    private func applyColor() {
+        if let hex = config.bulletColorHex, let custom = SpriteColor(hex: hex) {
+            withAnimation(.easeInOut(duration: 0.35)) { accentColor = custom.color }
+            return
+        }
+        guard !isRandomMode, let poke = selectedSprite else {
+            withAnimation(.easeInOut(duration: 0.35)) { accentColor = Color(red: 0.85, green: 0.55, blue: 0.55) }
+            return
+        }
         DispatchQueue.global(qos: .userInitiated).async {
             let color = ColorExtractor.dominantColor(for: poke.url).color
             DispatchQueue.main.async {
@@ -204,6 +255,7 @@ struct GreeterView: View {
             savedSelectedFilename = config.selectedSprite
             savedDisplayMode = config.displayMode
             savedFields = config.enabledFields
+            savedBulletColorHex = config.bulletColorHex
         } catch {
             withAnimation { saveStatus = .error }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {

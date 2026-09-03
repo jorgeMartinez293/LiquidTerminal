@@ -271,7 +271,7 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
         // applied by ZshPromptShim as the last step of shell startup, after the user's own
         // .zshrc (and any theme/framework it loads) has already set PROMPT itself.
         if let spriteURL = Self.resolveGreeterSprite() {
-            let color = ColorExtractor.dominantColor(for: spriteURL)
+            let color = ColorExtractor.resolvedColor(for: spriteURL, overrideHex: GreeterConfigStore.load().bulletColorHex)
             let hex = String(format: "#%02X%02X%02X", color.red, color.green, color.blue)
             env["SERENO_COLOR"] = hex
             env["VIDRIO_PROMPT"] = "%F{\(hex)}●%f %F{\(hex)}%/%f %F{15}"
@@ -329,7 +329,7 @@ class TerminalViewController: NSViewController, LocalProcessTerminalViewDelegate
               terminalView.terminal.isCurrentBufferAlternate == false else { return }
         guard let spriteURL = Self.resolveGreeterSprite() else { return }
         let config = GreeterConfigStore.load()
-        let bytes = GreetingRenderer.render(spriteURL: spriteURL, displayMode: config.displayMode, shellExecutable: shellExecutable, fields: config.enabledFields)
+        let bytes = GreetingRenderer.render(spriteURL: spriteURL, displayMode: config.displayMode, shellExecutable: shellExecutable, fields: config.enabledFields, bulletColorHex: config.bulletColorHex)
         terminalView.feed(byteArray: bytes[...])
     }
 

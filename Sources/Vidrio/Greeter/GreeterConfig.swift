@@ -27,18 +27,23 @@ struct GreeterConfig: Codable {
     var selectedSprite: String?
     var displayMode: DisplayMode
     var enabledFields: [InfoField]
+    /// `#RRGGBB` override for the info-line bullets and prompt color, or nil to keep
+    /// the default: each sprite's own dominant color (`ColorExtractor.dominantColor`).
+    var bulletColorHex: String?
 
     enum CodingKeys: String, CodingKey {
         case selectedSprite = "selected_sprite"
         case legacySelectedSprite = "selected_pokemon"
         case displayMode = "display_mode"
         case enabledFields = "enabled_fields"
+        case bulletColorHex = "bullet_color"
     }
 
-    init(selectedSprite: String? = nil, displayMode: DisplayMode = .auto, enabledFields: [InfoField] = InfoField.defaults) {
+    init(selectedSprite: String? = nil, displayMode: DisplayMode = .auto, enabledFields: [InfoField] = InfoField.defaults, bulletColorHex: String? = nil) {
         self.selectedSprite = selectedSprite
         self.displayMode = displayMode
         self.enabledFields = enabledFields
+        self.bulletColorHex = bulletColorHex
     }
 
     init(from decoder: Decoder) throws {
@@ -53,6 +58,7 @@ struct GreeterConfig: Codable {
         } else {
             self.enabledFields = InfoField.defaults
         }
+        self.bulletColorHex = try c.decodeIfPresent(String.self, forKey: .bulletColorHex)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -60,6 +66,7 @@ struct GreeterConfig: Codable {
         try c.encodeIfPresent(selectedSprite, forKey: .selectedSprite)
         try c.encode(displayMode, forKey: .displayMode)
         try c.encode(enabledFields, forKey: .enabledFields)
+        try c.encodeIfPresent(bulletColorHex, forKey: .bulletColorHex)
     }
 }
 

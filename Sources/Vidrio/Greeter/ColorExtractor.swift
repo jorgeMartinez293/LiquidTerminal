@@ -11,6 +11,22 @@ struct SpriteColor: Equatable {
 
     var color: Color { Color(red: Double(red) / 255, green: Double(green) / 255, blue: Double(blue) / 255) }
 
+    /// `#RRGGBB`, used to persist a user-chosen override in config.json.
+    var hex: String { String(format: "#%02X%02X%02X", red, green, blue) }
+
+    init(red: UInt8, green: UInt8, blue: UInt8) {
+        self.red = red; self.green = green; self.blue = blue
+    }
+
+    init?(hex: String) {
+        var s = hex
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+        self.red = UInt8((v >> 16) & 0xFF)
+        self.green = UInt8((v >> 8) & 0xFF)
+        self.blue = UInt8(v & 0xFF)
+    }
+
     /// `ESC[38;2;R;G;Bm` truecolor SGR sequence, used by GreetingRenderer to
     /// tint the info-line bullets — replaces fastfetch's `--color-keys <hex>`.
     var ansiForeground: [UInt8] {
@@ -26,6 +42,13 @@ enum ColorExtractor {
               let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil)
         else { return .fallback }
         return dominantColor(for: cgImage)
+    }
+
+    /// The color to tint the info-line bullets and prompt with: a user-chosen
+    /// override if set, otherwise the sprite's own dominant color (the default).
+    static func resolvedColor(for url: URL, overrideHex: String?) -> SpriteColor {
+        if let overrideHex, let custom = SpriteColor(hex: overrideHex) { return custom }
+        return dominantColor(for: url)
     }
 
     static func dominantColor(for cgImage: CGImage) -> SpriteColor {

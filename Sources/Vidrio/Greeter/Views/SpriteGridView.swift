@@ -32,13 +32,17 @@ struct SpriteGridView: View {
                                     selectedSprite = nil
                                 }
                             }
+
+                        AddCard(accentColor: accentColor)
+                            .onTapGesture { presentImportPanel() }
                     }
 
                     ForEach(filtered) { poke in
                         SpriteCell(
                             sprite: poke,
                             isSelected: !isRandomMode && selectedSprite == poke,
-                            accentColor: accentColor
+                            accentColor: accentColor,
+                            onDelete: { deleteSprite(poke) }
                         )
                         .onTapGesture {
                             withAnimation(.spring(response: 0.2)) {
@@ -125,6 +129,26 @@ struct SpriteGridView: View {
         }
         return true
     }
+
+    private func deleteSprite(_ sprite: Sprite) {
+        if selectedSprite == sprite {
+            selectedSprite = nil
+            isRandomMode = true
+        }
+        spriteManager.deleteSprite(sprite)
+    }
+
+    private func presentImportPanel() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.gif, .png, .jpeg, .webP]
+        panel.begin { response in
+            guard response == .OK else { return }
+            spriteManager.importSprites(from: panel.urls)
+        }
+    }
 }
 
 // MARK: - Random card
@@ -170,6 +194,7 @@ struct SpriteCell: View {
     let sprite: Sprite
     let isSelected: Bool
     let accentColor: Color
+    let onDelete: () -> Void
     @State private var hovered = false
 
     var body: some View {
@@ -188,6 +213,18 @@ struct SpriteCell: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(accentColor).font(.system(size: 12)).padding(4)
                 }
+
+                if hovered {
+                    Button(action: onDelete) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                            .background(Circle().fill(.thickMaterial))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(2)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
             }
             .frame(width: 88, height: 78)
             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -196,6 +233,36 @@ struct SpriteCell: View {
                 .font(.caption2)
                 .fontWeight(isSelected ? .semibold : .regular)
                 .foregroundColor(isSelected ? accentColor : .primary)
+                .lineLimit(1).frame(maxWidth: .infinity)
+        }
+        .onHover { h in withAnimation(.easeInOut(duration: 0.15)) { hovered = h } }
+    }
+}
+
+// MARK: - Add card
+struct AddCard: View {
+    let accentColor: Color
+    @State private var hovered = false
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.primary.opacity(hovered ? 0.07 : 0.03))
+                    .overlay(RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4])))
+
+                Image(systemName: "plus")
+                    .font(.system(size: 26, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(width: 58, height: 58)
+                    .padding(8)
+            }
+            .frame(width: 88, height: 78)
+
+            Text("New")
+                .font(.caption2)
+                .foregroundColor(.primary)
                 .lineLimit(1).frame(maxWidth: .infinity)
         }
         .onHover { h in withAnimation(.easeInOut(duration: 0.15)) { hovered = h } }

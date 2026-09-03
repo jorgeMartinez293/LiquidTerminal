@@ -74,4 +74,10 @@ class SpriteManager: ObservableObject {
         if copied > 0 { reload() }
         return copied
     }
+
+    /// Removes a sprite's file from disk and reloads.
+    func deleteSprite(_ sprite: Sprite) {
+        try? FileManager.default.removeItem(at: sprite.url)
+        reload()
+    }
 }
